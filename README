@@ -1,0 +1,54 @@
+### Repository Setup ###
+data/
+    Op3176_DefectMap/       (2000 images from previous 2 years)
+    Op3176_DefectMap2/      (500 images sampled from above, testing)
+    Op3176_DefectMap_Labeled/
+        Label_*/
+        Noise/
+        Unlabeled/
+outputs/
+    v*/                     (correspond to mains)
+        checkpoints/        (pytorch models, not saved)
+        diagnostics/        (additional testing)
+        figures/            (primary figures: loss, clustering, etc.)
+        results/            (all clustered images; primary output)
+        summaries/          (top9/rand9 images per cluster)
+experiment/                 (experimental data, images, figures)
+scripts.py {    
+                main = unsupervised training (+inference for later iterations)
+                twostream/dual = unsupervised training (polar + cartesian variants)
+                semisupervised = supervised with weak labeling (uses labeled dataset)
+                inference = inference scripts (for early iterations)
+                experiments/tests = edge detection
+            }
+
+### TO RUN LATEST TRAINING SCRIPTS ###
+# Installation #
+Command:
+    pip install -r requirements.txt
+
+# Unsupervised: main_v8 #
+Input: 
+    a folder of images
+Output:
+    a folder with subfolders (described above)
+Command:
+    python main_v8.py
+    python inference_v8.py --input_dir data/Op3176_DefectMap --checkpoint outputs/v8/checkpoints/ckpt_100.pth --output_dir outputs/v8
+
+# Semisupervised: semisupervised_v3 #
+Input:
+    a folder with subfolders: 
+        any number of "Label_xxx/(images)"
+        one "Unlabeled/(images)"
+        one "Noise/(images)"
+Output:
+    a folder with subfolders (described above)
+Command:
+    python semisupervised_v3.py --input_dir data/Op3176_DefectMap_Labeled --output_dir outputs/sup_v3
+
+# Experiments #
+Input/Output: similar to above
+Command:
+    python edge_experiment6.py
+

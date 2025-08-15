@@ -1,0 +1,8 @@
+venv
+cache
+__pycache__
+
+# ignore any folder whose name starts with type_ (any depth)
+data/
+**/results/
+**/checkpoints/

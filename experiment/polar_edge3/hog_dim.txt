@@ -1,0 +1,1 @@
+HOG feature length: 576
