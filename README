@@ -46,6 +46,7 @@ Output:
     a folder with subfolders (described above)
 Command:
     python semisupervised_v4.py --input_dir data/Op3176_DefectMap_Labeled --output_dir outputs/sup_v4
+    python inference_sup_v4.py  --input_dir data/new_data_folder --output_dir outputs/new_output_folder
 
 # Experiments #
 Input/Output: similar to above
