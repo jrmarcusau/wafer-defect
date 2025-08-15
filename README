@@ -36,7 +36,7 @@ Command:
     python main_v8.py
     python inference_v8.py --input_dir data/Op3176_DefectMap --checkpoint outputs/v8/checkpoints/ckpt_100.pth --output_dir outputs/v8
 
-# Semisupervised: semisupervised_v3 #
+# Semisupervised: semisupervised_v4 #
 Input:
     a folder with subfolders: 
         any number of "Label_xxx/(images)"
@@ -45,7 +45,7 @@ Input:
 Output:
     a folder with subfolders (described above)
 Command:
-    python semisupervised_v3.py --input_dir data/Op3176_DefectMap_Labeled --output_dir outputs/sup_v3
+    python semisupervised_v4.py --input_dir data/Op3176_DefectMap_Labeled --output_dir outputs/sup_v4
 
 # Experiments #
 Input/Output: similar to above
