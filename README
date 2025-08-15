@@ -27,16 +27,18 @@ scripts.py {
 Command:
     pip install -r requirements.txt
 
-# Unsupervised: main_v8 #
-Input: 
-    a folder of images
-Output:
-    a folder with subfolders (described above)
-Command:
-    python main_v8.py
-    python inference_v8.py --input_dir data/Op3176_DefectMap --checkpoint outputs/v8/checkpoints/ckpt_100.pth --output_dir outputs/v8
+# [BEST] Run Inference: Semisupervised v4 #
+Have in root:
+    /path/to/input/       (data folder, same level as python script)
+    /path/to/output/      (empty folder, same level as python script)
+    /path/to/model.pth    (pytorch model, same level as python script)
+Run:
+    python inference_sup_v4.py --input_dir /path/to/input/ --checkpoint /path/to/model.pth --output_dir /path/to/output/
+Expect:
+    /path/to/output will generate subfolders type_0/ ... type/29
+    all images will be clustered into one of such. Expect some clusters to be mainly noise, and clusters will be unevenly distributed
 
-# Semisupervised: semisupervised_v4 #
+# [BEST] Run Training: Semisupervised v4 #
 Input:
     a folder with subfolders: 
         any number of "Label_xxx/(images)"
@@ -46,7 +48,30 @@ Output:
     a folder with subfolders (described above)
 Command:
     python semisupervised_v4.py --input_dir data/Op3176_DefectMap_Labeled --output_dir outputs/sup_v4
-    python inference_sup_v4.py  --input_dir data/new_data_folder --output_dir outputs/new_output_folder
+
+
+
+# Unsupervised: main_v8 TRAINING #
+Input: 
+    a folder of images
+Output:
+    a folder with subfolders (described above)
+Command:
+    python main_v8.py
+    python inference_v8.py --input_dir data/Op3176_DefectMap --checkpoint outputs/v8/checkpoints/ckpt_100.pth --output_dir outputs/v8
+
+# Unsupervised: v8 INFERENCE #
+Have:
+    /path/to/input/       (data folder, same level as python script)
+    /path/to/output/      (empty folder, same level as python script)
+    /path/to/model.pth    (pytorch model, same level as python script)
+Run:
+    python inference_sup_v4.py --input_dir /path/to/input/ --checkpoint /path/to/model.pth --output_dir /path/to/output/
+Expect:
+    /path/to/output will generate subfolders type_0/ ... type/19
+    all images will be clustered into one of such. Expect some clusters to be mainly noise, and clusters will be unevenly distributed
+
+
 
 # Experiments #
 Input/Output: similar to above

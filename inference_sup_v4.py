@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 """
-inference_sup_v3.py
+inference_sup_v4.py
 ────────────────────
-Inference-only script for clustering a raw wafer set into:
-  • 30 strong clusters (ids 0–29)
-  • 4 weak buckets (ids 30–33)
-  • noise (very low-confidence items)
+Inference-only script for v4 models (no weak buckets).
+Forces every input image into one of 30 clusters (0–29).
 
 Inputs
 ------
-  • Raw images: data/Op3176_DefectMap/*.png
-  • Trained model + DEC centers: outputs/sup_v3/checkpoints/ckpt_100.pth
+  • --data_dir  : flat folder of unlabeled PNGs
+  • --ckpt      : trained checkpoint with model_state + centers
+  • --out_dir   : output root; creates type_* and summaries/{top9,random9}
 
 Outputs
 -------
-  • outputs/sup_v3/results/
-        ├─ type_0 ... type_33/
-        ├─ type_noise/
-        └─ summaries/top9/cluster_<id>.png   (and cluster_noise.png)
+  <out_dir>/
+    ├─ type_0 ... type_29/
+    └─ summaries/
+         ├─ top9/cluster_<id>.png
+         └─ random9/cluster_<id>.png
 """
 
 # ───────────────────────── Imports ──────────────────────────
@@ -25,9 +25,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 from glob import glob
-from pathlib import Path
-from typing import List, Tuple
+from typing import List
 
 import cv2
 import numpy as np
@@ -35,23 +35,19 @@ import torch
 import torch.nn as nn
 import torchvision.utils as vutils
 from PIL import Image
-from torchvision.transforms import Resize, ToTensor
 from torch.utils.data import DataLoader, Dataset
+from torchvision.transforms import ToTensor, Resize
 
 # ───────────────────── Global hyper-parameters ─────────────────────
-IMG_SIZE = 256
-
+IMG_SIZE   = 256
 MAIN_BATCH = 32
 
-Z_STREAM = 256
-Z_FUSED = 256
+Z_STREAM   = 256
+Z_FUSED    = 256
 K_CLUSTERS = 30
-N_WEAK = 4                    # Weak-0…Weak-3  → ids 30-33
 
-TAU_STRONG = 0.65             # same as training v3
-NOISE_Q_THRESH = 0.10         # heuristic: ultra-low DEC confidence → noise
-
-TOP_K = 9
+TOP_K  = 9
+RAND_K = 9
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -72,38 +68,38 @@ def to_four_channel(arr_u8: np.ndarray) -> torch.Tensor:
     coords = np.linspace(-1.0, 1.0, IMG_SIZE, dtype=np.float32)
     grid_x, grid_y = np.meshgrid(coords, coords)
 
-    stacked = np.stack(
-        [
-            gray.astype(np.float32) / 255.0,
-            sob.astype(np.float32) / 255.0,
-            grid_x,
-            grid_y,
-        ],
-        axis=0,
-    )
+    stacked = np.stack([
+        gray.astype(np.float32) / 255.0,
+        sob.astype(np.float32)  / 255.0,
+        grid_x,
+        grid_y
+    ], axis=0)
 
-    return torch.from_numpy(stacked)
+    return torch.from_numpy(stacked.astype(np.float32))
 
 
-def ensure_dirs(*dirs: str | Path) -> None:
+def ensure_dirs(*dirs: str) -> None:
     for d in dirs:
-        Path(d).mkdir(parents=True, exist_ok=True)
+        os.makedirs(d, exist_ok=True)
 
 
 def save_montage(img_paths: List[str], out_file: str, k: int) -> None:
-    """Top-K grid, de-duplicated, padded with blanks if needed."""
+    """Save a K-image grid without duplicates, padding with blanks if needed."""
     tf_resize = Resize((IMG_SIZE, IMG_SIZE))
     imgs: List[torch.Tensor] = []
     seen = set()
+
     for p in img_paths:
         if p not in seen:
             seen.add(p)
             imgs.append(ToTensor()(tf_resize(Image.open(p).convert("RGB"))))
         if len(imgs) == k:
             break
+
     while len(imgs) < k:
         imgs.append(torch.zeros(3, IMG_SIZE, IMG_SIZE))
-    grid = vutils.make_grid(imgs, nrow=int(np.ceil(np.sqrt(k))), padding=2)
+
+    grid = vutils.make_grid(imgs[:k], nrow=int(np.ceil(np.sqrt(k))), padding=2)
     vutils.save_image(grid, out_file)
 
 
@@ -124,7 +120,7 @@ class RawDataset(Dataset):
 
 
 # -----------------------------------------------------------------------------
-# Model (must match the training architecture exactly)
+# Model (must match training architecture)
 # -----------------------------------------------------------------------------
 class StreamEncoder(nn.Module):
     def __init__(self) -> None:
@@ -196,7 +192,7 @@ class SemiDualNet(nn.Module):
 
 
 # -----------------------------------------------------------------------------
-# DEC helpers
+# DEC helper functions
 # -----------------------------------------------------------------------------
 def soft_assign(z: torch.Tensor, centers: torch.Tensor, alpha: float = 1.0) -> torch.Tensor:
     """Student-t similarity used in DEC."""
@@ -206,30 +202,27 @@ def soft_assign(z: torch.Tensor, centers: torch.Tensor, alpha: float = 1.0) -> t
 
 
 # -----------------------------------------------------------------------------
-# Inference
+# Main inference
 # -----------------------------------------------------------------------------
 def run_inference(data_dir: str, out_dir: str, ckpt_path: str) -> None:
-    # Gather images (png/PNG)
+    # Gather images
     img_paths = sorted(glob(os.path.join(data_dir, "*.png")) + glob(os.path.join(data_dir, "*.PNG")))
     assert len(img_paths) > 0, f"No PNG images found in {data_dir}"
 
-    # Output directories
+    # Prepare outputs
     top9_dir = os.path.join(out_dir, "summaries", "top9")
-    ensure_dirs(out_dir, top9_dir)
-    for k in range(K_CLUSTERS + N_WEAK):
+    rnd9_dir = os.path.join(out_dir, "summaries", "random9")
+    ensure_dirs(out_dir, top9_dir, rnd9_dir)
+    for k in range(K_CLUSTERS):
         ensure_dirs(os.path.join(out_dir, f"type_{k}"))
-    ensure_dirs(os.path.join(out_dir, "type_noise"))
 
     # Load checkpoint
     ckpt = torch.load(ckpt_path, map_location="cpu")
     model_state = ckpt["model_state"]
-    centers = ckpt["centers"].to(DEVICE).float()
+    centers = ckpt["centers"].to(DEVICE).float()  # [30, 256]
 
-    # Infer head size from checkpoint
-    head_weight = model_state["head.weight"]
-    n_seed_classes = head_weight.shape[0]
-
-    # Rebuild model and load weights
+    # Infer head size and rebuild model
+    n_seed_classes = model_state["head.weight"].shape[0]
     model = SemiDualNet(n_seed_classes=n_seed_classes).to(DEVICE)
     model.load_state_dict(model_state, strict=True)
     model.eval()
@@ -244,107 +237,55 @@ def run_inference(data_dir: str, out_dir: str, ckpt_path: str) -> None:
         pin_memory=torch.cuda.is_available(),
     )
 
-    # Storage for features and bookkeeping
     feats_list: List[torch.Tensor] = []
-    rec_err_list: List[float] = []
     paths_list: List[str] = []
 
     with torch.no_grad():
-        for x, _, pths in loader:
-            x = x.to(DEVICE)
-            z, rec_p, rec_c, _ = model(x, x)
-
-            # Use polar decoder recon error as a quick consistency proxy
-            rec_err = torch.mean((rec_p - x[:, :1]) ** 2, dim=[1, 2, 3])
-
+        for xb, _, pths in loader:
+            xb = xb.to(DEVICE)
+            z, _, _, _ = model(xb, xb)
             feats_list.append(z.detach().cpu())
-            rec_err_list.extend(rec_err.detach().cpu().tolist())
             paths_list.extend(list(pths))
 
-    feats = torch.cat(feats_list, dim=0).float()
-    rec_err = np.asarray(rec_err_list, dtype=np.float32)
+    feats = torch.cat(feats_list, dim=0).float()             # [N, 256]
+    q = soft_assign(feats.to(DEVICE), centers).cpu()          # [N, 30]
+    cluster_id = q.argmax(dim=1).numpy()                      # force 0–29
 
-    # DEC soft assignment to saved centers
-    q = soft_assign(feats.to(DEVICE), centers).cpu().numpy()
-    conf = q.max(axis=1)
-    cid = q.argmax(axis=1)
-
-    # Heuristic noise: ultra-low confidence to any center
-    is_noise = conf < NOISE_Q_THRESH
-
-    # Strong vs weak buckets (only for non-noise)
-    strong_mask = (conf >= TAU_STRONG) & (~is_noise)
-    weak_mask = (~strong_mask) & (~is_noise)
-
-    final = cid.copy()
-
-    if np.any(weak_mask):
-        # Quantile bins on weak subset only
-        qcuts = np.quantile(conf[weak_mask], [0.25, 0.5, 0.75])
-        weak_bin = np.digitize(conf[weak_mask], qcuts)
-        final[weak_mask] = K_CLUSTERS + weak_bin
-
-    # Copy images to folders
-    for p, lbl, nflag in zip(paths_list, final, is_noise):
-        if nflag:
-            dst_dir = os.path.join(out_dir, "type_noise")
-        else:
-            dst_dir = os.path.join(out_dir, f"type_{int(lbl)}")
-        ensure_dirs(dst_dir)
-        shutil_path = os.path.join(dst_dir, os.path.basename(p))
-        if p != shutil_path:
+    # Copy images into type_<id> folders
+    for p, lbl in zip(paths_list, cluster_id):
+        dst_dir = os.path.join(out_dir, f"type_{int(lbl)}")
+        dst = os.path.join(dst_dir, os.path.basename(p))
+        if p != dst:
             try:
-                # Copy (not move) to keep raw intact
-                from shutil import copy2
-                copy2(p, shutil_path)
+                shutil.copy2(p, dst)
             except Exception:
                 pass
 
-    # Build top9 summaries for each bucket 0–33 and noise
-    # For 0–29 and 30–33: rank by L2 distance to their assigned center
-    # For noise: rank by lowest confidence (most "noisy" first)
-    top_map = {}
-    for k in range(K_CLUSTERS + N_WEAK):
-        idx = np.where((final == k) & (~is_noise))[0]
+    # Build summaries: top9 by distance-to-center + random9
+    for k in range(K_CLUSTERS):
+        idx = np.where(cluster_id == k)[0]
         if idx.size == 0:
             continue
-        center_k = centers[k if k < K_CLUSTERS else (k - K_CLUSTERS)].detach().cpu().numpy() \
-                   if k < K_CLUSTERS else centers[cid[idx]].detach().cpu().numpy()
-        # For weak buckets, there is no dedicated center saved; approximate with the
-        # per-item assigned strong center for distance ranking.
-        if k < K_CLUSTERS:
-            dist = np.linalg.norm(feats[idx].numpy() - centers[k].detach().cpu().numpy(), axis=1)
-        else:
-            dist = np.linalg.norm(
-                feats[idx].numpy() - centers[cid[idx]].detach().cpu().numpy(),
-                axis=1,
-            )
-        order = idx[np.argsort(dist)]
-        top_map[k] = [paths_list[i] for i in order[:TOP_K]]
 
-    for k, paths_k in top_map.items():
-        out_png = os.path.join(top9_dir, f"cluster_{k}.png")
-        save_montage(paths_k, out_png, TOP_K)
+        # distance to center k
+        dist = np.linalg.norm(feats[idx].numpy() - centers[k].detach().cpu().numpy(), axis=1)
+        top_order = idx[np.argsort(dist)]
 
-    # Noise summary (pick the K lowest-confidence samples)
-    idx_noise = np.where(is_noise)[0]
-    if idx_noise.size > 0:
-        order_noise = idx_noise[np.argsort(conf[idx_noise])]
-        top_noise = [paths_list[i] for i in order_noise[:TOP_K]]
-        save_montage(top_noise, os.path.join(top9_dir, "cluster_noise.png"), TOP_K)
+        save_montage([paths_list[i] for i in top_order[:TOP_K]],
+                     os.path.join(top9_dir, f"cluster_{k}.png"),
+                     TOP_K)
+
+        rnd_sel = np.random.choice(idx, min(len(idx), RAND_K), replace=False)
+        save_montage([paths_list[i] for i in rnd_sel],
+                     os.path.join(rnd9_dir, f"cluster_{k}.png"),
+                     RAND_K)
 
     # Console summary
-    counts = {}
-    for k in range(K_CLUSTERS + N_WEAK):
-        counts[k] = int(np.sum((final == k) & (~is_noise)))
-    n_noise = int(np.sum(is_noise))
-
     print("─" * 60)
     print(f"Total images: {len(paths_list)}")
-    print(f"Noise: {n_noise}")
-    for k in range(K_CLUSTERS + N_WEAK):
-        print(f"type_{k}: {counts[k]}")
-    print("Top9 summaries saved to:", top9_dir)
+    for k in range(K_CLUSTERS):
+        print(f"type_{k}: {int(np.sum(cluster_id == k))}")
+    print("Summaries saved to:", os.path.join(out_dir, "summaries"))
     print("Done.")
 
 
@@ -354,8 +295,8 @@ def run_inference(data_dir: str, out_dir: str, ckpt_path: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", default="data/Op3176_DefectMap")
-    parser.add_argument("--out_dir",  default="outputs/sup_v4/results2")
     parser.add_argument("--ckpt",     default="outputs/sup_v4/checkpoints/ckpt_100.pth")
+    parser.add_argument("--out_dir",  default="outputs/sup_v4/results2")
     args = parser.parse_args()
 
     run_inference(args.data_dir, args.out_dir, args.ckpt)

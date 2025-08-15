@@ -2,8 +2,8 @@ venv
 cache
 __pycache__
 
-# ignore any folder whose name starts with type_ (any depth)
 data/
+inference/
 **/results/
 **/checkpoints/
-**/sup_v4/
+**/results2/
