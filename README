@@ -1,3 +1,14 @@
+### Introduction ###
+The following directory includes scripts to sort a given wafer (with defect die patterns) into 20-30 clusters, unsupervised, unlabeled.
+
+The initial method was done using a fully unsupervised method, combining a Convolutional AutoEncoder with a KMeans classifier. This method forces wafers into exclusively 1 of 20 clusters, in an uneven distribution. This model is weaker, as only radial, large, and obvious whole-wafer defects are able to be caught and clusters correctly
+
+The second method is semi-supervised, labeling some portions of the training dataset, encouraging the autoencoder to embed the images in such a way that the more specific features are able to be captured. Then these wafers will be sorted into 30 exclusive clusters, not particularly the same labeled clusters, but encouraged based on how the features were embedded into the latent space. This method works better, but only if the given wafer is very similar to a predetermined cluster pattern.
+
+Neither approaches are: fully supervised with named clusters, able to label a wafer as 2+ simultaneous defects, or generate new cluster types at inference time
+
+Future work include: trying to adjust/combine the architecture to get the above requirements, finding more sophisticated edge detection techniques (shapes based on density of dots), balancing representing wafers in polar vs cartesian form, feature engineering wafers before passing into autoencoder.
+
 ### Repository Setup ###
 data/
     Op3176_DefectMap/       (2000 images from previous 2 years)
@@ -13,21 +24,25 @@ outputs/
         figures/            (primary figures: loss, clustering, etc.)
         results/            (all clustered images; primary output)
         summaries/          (top9/rand9 images per cluster)
-experiment/                 (experimental data, images, figures)
-scripts.py {    
-                main = unsupervised training (+inference for later iterations)
-                twostream/dual = unsupervised training (polar + cartesian variants)
-                semisupervised = supervised with weak labeling (uses labeled dataset)
-                inference = inference scripts (for early iterations)
-                experiments/tests = edge detection
-            }
+experiment/                 
+    edge*/                  (experimental data, images, figures)
+
+Scripts:   
+main_ = unsupervised training (+inference for later iterations)
+twostream/dual_ = unsupervised training (polar + cartesian variants)
+semisupervised_ = supervised with weak labeling (uses labeled dataset)
+inference_ = inference scripts (for early iterations)
+experiments/tests_ = edge detection experiments
 
 ### TO RUN LATEST TRAINING SCRIPTS ###
 # Installation #
 Command:
+    python -m venv .venv
+    cd .venv
     pip install -r requirements.txt
 
 # [BEST] Run Inference: Semisupervised v4 #
+Description: Given a folder of images and a pretrained model, sort them into 30 clusters
 Have in root:
     /path/to/input/       (data folder, same level as python script)
     /path/to/output/      (empty folder, same level as python script)
@@ -39,6 +54,7 @@ Expect:
     all images will be clustered into one of such. Expect some clusters to be mainly noise, and clusters will be unevenly distributed
 
 # [BEST] Run Training: Semisupervised v4 #
+Description: Given a folder of images, weakly sorted into different types, generate a model to determine how to sort these and future images into 30 clusters
 Input:
     a folder with subfolders: 
         any number of "Label_xxx/(images)"
@@ -49,18 +65,8 @@ Output:
 Command:
     python semisupervised_v4.py --input_dir data/Op3176_DefectMap_Labeled --output_dir outputs/sup_v4
 
-
-
-# Unsupervised: main_v8 TRAINING #
-Input: 
-    a folder of images
-Output:
-    a folder with subfolders (described above)
-Command:
-    python main_v8.py
-    python inference_v8.py --input_dir data/Op3176_DefectMap --checkpoint outputs/v8/checkpoints/ckpt_100.pth --output_dir outputs/v8
-
-# Unsupervised: v8 INFERENCE #
+# Unsupervised: main_v8 INFERENCE #
+Description: Given a folder of images and a pretrained model, sort them into 20 clusters
 Have:
     /path/to/input/       (data folder, same level as python script)
     /path/to/output/      (empty folder, same level as python script)
@@ -71,9 +77,18 @@ Expect:
     /path/to/output will generate subfolders type_0/ ... type/19
     all images will be clustered into one of such. Expect some clusters to be mainly noise, and clusters will be unevenly distributed
 
-
+# Unsupervised: main_v8 TRAINING #
+Description: Given a folder of images, unlabeled, generate a model to determine how to sort these and future images into 20 clusters
+Input: 
+    a folder of images
+Output:
+    a folder with subfolders (described above)
+Command:
+    python main_v8.py
+    python inference_v8.py --input_dir data/Op3176_DefectMap --checkpoint outputs/v8/checkpoints/ckpt_100.pth --output_dir outputs/v8
 
 # Experiments #
+Description: Take one image and apply OpenCV libraries' operations to detect edges of shapes within a wafer.
 Input/Output: similar to above
 Command:
     python edge_experiment6.py

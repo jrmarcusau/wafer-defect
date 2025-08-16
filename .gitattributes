@@ -1,2 +1,0 @@
-#LFS for all outputs
-data/ filter=lfs diff=lfs merge=lfs -text
