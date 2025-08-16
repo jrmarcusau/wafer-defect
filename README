@@ -33,7 +33,7 @@ Have in root:
     /path/to/output/      (empty folder, same level as python script)
     /path/to/model.pth    (pytorch model, same level as python script)
 Run:
-    python inference_sup_v4.py --input_dir /path/to/input/ --checkpoint /path/to/model.pth --output_dir /path/to/output/
+    python inference_sup_v4.py --data_dir /path/to/input/ --ckpt /path/to/model.pth --out_dir /path/to/output/
 Expect:
     /path/to/output will generate subfolders type_0/ ... type/29
     all images will be clustered into one of such. Expect some clusters to be mainly noise, and clusters will be unevenly distributed
